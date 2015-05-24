@@ -1,0 +1,124 @@
+---
+title: "PML Project - Predicting Classe"
+author: "Jordan Cheah"
+date: "May 23, 2015"
+output: html_document
+---
+## Summary
+The goal of the project is to predict the manner in which people did the exercise. This is the "classe" variable in the training set. Two models, Fitting Single Tree and Random Forest, are used and results are cross-validated.  Accuracy of both models are 54% and 99% respectively.  Data Source is http://groupware.les.inf.puc-rio.br/har
+
+### Data Loading
+
+To ensure the results is reproducible, seed is set and required libraries are loaded, and NAs are set appropriately when reading data.
+
+```{r, results="hide"}
+set.seed(8888)
+library(caret)
+
+etr <- read.csv('pml-training.csv', na.strings = c("", "NA", "#DIV/0!"))
+ett <- read.csv('pml-testing.csv', na.strings = c("", "NA", "#DIV/0!"))
+# summary(etr)
+```
+
+
+### Data Simplification
+
+In this part of the process, unnecessary columns, near-zero variance columns and NA columns are removed.
+
+```{r}
+etr <- etr[, -grep("X|user_name|cvtd_timestamp", names(etr))]  # Remove visibly unwanted columns
+etr <- etr[, -nearZeroVar(etr)]   # Remove near zero variance columns
+# dim(etr) is now 19622 x 121
+NAs <- apply(etr, 2, function(x) { sum(is.na(x)) })   # class(NAs) is integer[1:121]
+etr <- etr[, which(NAs == 0)]  # keep columns which has no NA
+# dim(etr) is now 19622 x 56
+```
+
+### Data Partitioning
+
+We split the data sets 20/80 i.e. 20% for training, and 80% for cross validation.
+
+```{r}
+i <- createDataPartition(y = etr$classe, p = 0.2, list = FALSE)
+etr1 <- etr[i, ]   # 3927 obs. of 56 variables, 20% of original training data
+etr2 <- etr[-i, ]  # test set for cross validation, 80% of original training data
+```
+
+## Model Creation #1: Classification Tree (rpart)
+
+We perform a classification tree using the caret package with method = rpart.
+
+```{r}
+mf1 <- train(etr1$classe ~ ., data = etr1, method = "rpart")
+mf1
+r1 <- mf1$results
+round(max(r1$Accuracy), 4) * 100
+```
+
+_Conclusion: The accuracy of the model is 53.97% which is low._
+
+
+## Model Creation #2: Random Forest
+A prediction model is created using Random Forest.  Note that the train() function can take sometime to run.
+```{r}
+tc <- trainControl(method = "cv", number = 4, allowParallel = TRUE)
+mf2 <- train(etr1$classe ~ ., data=etr1, method = "rf", prof = TRUE, trControl = tc)
+mf2
+# summary(mf2)
+r2 <- mf2$results
+round(max(r2$Accuracy), 4) * 100
+```    
+
+_Conclusion: The accuracy of the model is 98.88% which is high._
+
+## Cross-Validation
+
+We use the chosen prediction model from Random Forest to predict new values etr2 (contains 80% of data).
+
+```{r}
+pred <- predict(mf2, etr2)
+etr2$predRight <- pred == etr2$classe
+table(pred, etr2$classe)
+```   
+
+```{r}
+r3 <- postResample(pred, etr2$classe)
+r3
+```   
+
+Conclusion: The accuracy of the model is 98.71%.
+
+## Out-of-Sample Error  / Confusion Matrix
+
+We calculated the out of sample error from etr2 (contains 80% of data).
+
+```{r}
+confusionMatrix(pred, etr2$classe)
+``` 
+Conclusion: Out-of-Sample Error = Kappa Statistic = 0.984
+
+```{r}
+plot( varImp(mf2) )
+``` 
+
+## 20 Test Cases - Predictions using Random Forest
+
+```{r}
+pred2 <- predict(mf2, ett)
+p <- ett
+p$classe <- pred2
+
+pml_write_files = function(x) {
+    n = length(x)
+    for (i in 1:n) {
+        filename = paste0("problem_id_", i, ".txt")
+        write.table(x[i], file = filename, quote = FALSE, row.names = FALSE, 
+            col.names = FALSE)
+    }
+}
+
+answers <- p$classe
+pml_write_files(answers)
+answers
+``` 
+
